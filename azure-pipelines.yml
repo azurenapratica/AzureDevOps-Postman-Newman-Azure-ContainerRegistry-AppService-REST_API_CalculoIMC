@@ -1,0 +1,102 @@
+trigger:
+- main
+
+resources:
+- repo: self
+
+variables:
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: 'CONEXÃO ACR'
+  imageRepository: 'apicalculoimc'
+  containerRegistry: 'anpazdevops.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+  testsDirectory: './Tests'
+  collectionPostmanFile: 'CalculoIMC.postman_collection.json'
+  dataPostmanTestsFile: 'data-tests-imc.json'
+  
+  # Agent VM image name
+  vmImageName: 'ubuntu-latest'
+
+stages:
+- stage: BuildTestsPush
+  displayName: Build, Tests and Push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: build
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+    - script: |
+        docker run --name api-testes -p 5000:80 -d $(containerRegistry)/$(imageRepository):$(tag)
+        docker container ls
+      displayName: Criação de container para testes com a API
+    - script: |
+        cd $(testsDirectory)
+        ls
+        newman run $(collectionPostmanFile) -d $(dataPostmanTestsFile)
+      displayName: Testes da API REST com Newman
+    - script: |
+        cd $(testsDirectory)
+        npm install newman@5.1.2
+        echo "** Versão Global do Newman **"
+        newman -v
+        echo "** Versão Local do Newman **"
+        npx newman -v
+        npm install newman-reporter-htmlextra@1.21.0
+      displayName:  Instalar packages para uso newman-reporter-htmlextra
+      condition: always() 
+    - script: |
+        cd $(testsDirectory)
+        npx newman run $(collectionPostmanFile) -d $(dataPostmanTestsFile) --reporters htmlextra --reporter-htmlextra-export ./newman/test-results.html
+        cd ./newman
+        ls
+      displayName: Gerar resultados em HTML dos testes da API REST com Newman
+      condition: always() 
+    - task: PublishPipelineArtifact@1
+      displayName: Publicar Artifact com os resultados do Postman
+      inputs:
+        targetPath: '$(System.DefaultWorkingDirectory)/$(testsDirectory)/newman/test-results.html'
+        artifact: 'tests-postman'
+        publishLocation: 'pipeline'
+      condition: always() 
+    - task: UploadPostmanHtmlReport@1
+      displayName: Publicar relatório em HTML com resultados dos testes da API REST com Newman
+      inputs:
+        cwd: '$(System.DefaultWorkingDirectory)/$(testsDirectory)'
+      condition: always() 
+    - task: Docker@2
+      displayName: Push da imagem
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: '$(imageRepository)'
+        command: 'push'
+        tags: |
+          $(tag)
+          latest          
+
+- stage: Deployment
+  displayName: Deployment no Azure App Service
+  dependsOn: BuildTestsPush
+  jobs:
+  - job: Deployment
+    displayName: Deployment
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: AzureWebAppContainer@1
+      displayName: Deployment no Azure App Service utilizando containers
+      inputs:
+        azureSubscription: 'AZURE SUBSCRIPTION'
+        appName: 'groffecalculoimc'
+        containers: '$(containerRegistry)/$(imageRepository):$(tag)'
