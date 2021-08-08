@@ -28,7 +28,7 @@ stages:
       vmImage: $(vmImageName)
     steps:
     - task: Docker@2
-      displayName: Build and push an image to container registry
+      displayName: Build da imagem
       inputs:
         command: build
         repository: $(imageRepository)
@@ -62,13 +62,6 @@ stages:
         cd ./newman
         ls
       displayName: Gerar resultados em HTML dos testes da API REST com Newman
-      condition: always() 
-    - task: PublishPipelineArtifact@1
-      displayName: Publicar Artifact com os resultados do Postman
-      inputs:
-        targetPath: '$(System.DefaultWorkingDirectory)/$(testsDirectory)/newman/test-results.html'
-        artifact: 'tests-postman'
-        publishLocation: 'pipeline'
       condition: always() 
     - task: UploadPostmanHtmlReport@1
       displayName: Publicar relatório em HTML com resultados dos testes da API REST com Newman

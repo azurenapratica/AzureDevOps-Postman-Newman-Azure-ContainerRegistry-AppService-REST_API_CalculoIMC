@@ -28,7 +28,7 @@ stages:
       vmImage: $(vmImageName)
     steps:
     - task: Docker@2
-      displayName: Build and push an image to container registry
+      displayName: Build da imagem
       inputs:
         command: build
         repository: $(imageRepository)
